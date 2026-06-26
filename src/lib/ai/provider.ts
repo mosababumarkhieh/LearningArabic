@@ -34,14 +34,19 @@ class OpenAICompatibleProvider implements AIProvider {
     let temperature = options.temperature ?? 0.7;
     let useJson = Boolean(options.json);
     let useTokenLimit = Boolean(options.maxTokens);
+    // Reasoning models (gpt-5*, o-series) spend tokens thinking before emitting
+    // output; nudge them toward a direct answer so a token cap can't starve it.
+    const isReasoningModel = /(?:^|[/_-])o\d|gpt-?5/i.test(this.model);
+    let useReasoningEffort = isReasoningModel;
 
-    for (let attempt = 0; attempt < 4; attempt++) {
+    for (let attempt = 0; attempt < 6; attempt++) {
       const body: Record<string, unknown> = { model: this.model, messages };
       // `max_completion_tokens` is the current parameter; `max_tokens` is the
       // legacy alias that newer models reject.
       if (useTokenLimit) body.max_completion_tokens = options.maxTokens;
       if (useTemperature) body.temperature = temperature;
       if (useJson) body.response_format = { type: "json_object" };
+      if (useReasoningEffort) body.reasoning_effort = "low";
 
       let res: Response;
       try {
@@ -62,13 +67,17 @@ class OpenAICompatibleProvider implements AIProvider {
 
       if (res.ok) {
         const data = (await res.json()) as {
-          choices?: { message?: { content?: string } }[];
+          choices?: { message?: { content?: string }; finish_reason?: string }[];
         };
         const content = data.choices?.[0]?.message?.content;
-        if (!content) {
-          throw new AIError("AI provider returned an empty response.");
+        if (content) return content;
+        // Empty output: a reasoning model likely exhausted the token cap on
+        // internal reasoning. Retry without the cap so it can emit an answer.
+        if (useTokenLimit) {
+          useTokenLimit = false;
+          continue;
         }
-        return content;
+        throw new AIError("AI provider returned an empty response.");
       }
 
       const text = await res.text().catch(() => "");
@@ -87,6 +96,10 @@ class OpenAICompatibleProvider implements AIProvider {
         }
         if (useJson && lower.includes("response_format")) {
           useJson = false; // prompts already request JSON explicitly
+          continue;
+        }
+        if (useReasoningEffort && lower.includes("reasoning_effort")) {
+          useReasoningEffort = false;
           continue;
         }
         if (
