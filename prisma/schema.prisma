@@ -1,0 +1,385 @@
+// Arabic Vocabulary Learning — data model
+// Progress is the source of truth: every mastery change, review, mistake and
+// AI-introduced word is persisted so learning continues consistently over time.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum WordType {
+  VERB
+  NOUN
+  ADJECTIVE
+  PHRASE
+  PARTICLE
+  UNKNOWN
+}
+
+enum SourceType {
+  ANKI_IMPORT
+  AI_GENERATED
+  MANUAL
+}
+
+enum VocabStatus {
+  NEW
+  LEARNING
+  REVIEW
+  WEAK
+  MASTERED
+}
+
+enum ReviewResult {
+  CORRECT
+  PARTIAL
+  INCORRECT
+  SKIPPED
+}
+
+enum PracticeMode {
+  ISOLATED
+  PARAGRAPH
+  DEEP_DIVE
+}
+
+enum ParagraphLength {
+  SHORT
+  MEDIUM
+  LONG
+  ESSAY
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  CHALLENGING
+}
+
+enum HarakatMode {
+  FULL
+  PARTIAL
+  NONE
+  TOGGLE
+}
+
+enum AIVocabMode {
+  OFF
+  CONSERVATIVE
+  NORMAL
+  AGGRESSIVE
+}
+
+// Lifecycle of an AI-introduced word: it starts PENDING, then the user (or the
+// grading flow) resolves it. SAVED words become permanent VocabularyItems.
+enum AIVocabStatus {
+  PENDING
+  SAVED
+  IGNORED
+  EDITED
+  REJECTED
+}
+
+// ---------------------------------------------------------------------------
+// Core models
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  settings   UserSettings?
+  vocabulary VocabularyItem[]
+  decks      DeckImport[]
+  lessons    Lesson[]
+  reviews    ReviewAttempt[]
+  mistakes   Mistake[]
+  aiVocab    AIIntroducedVocabulary[]
+}
+
+model UserSettings {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Isolated quiz
+  isolatedWordsPerQuiz Int @default(10)
+
+  // Lesson composition (counts)
+  newWordsPerLesson      Int @default(2)
+  weakWordsPerLesson     Int @default(4)
+  reviewWordsPerLesson   Int @default(4)
+  masteredWordsPerLesson Int @default(6)
+
+  // Default lesson ratio (percent). Used when generating paragraphs.
+  ratioMastered Int @default(70)
+  ratioReview   Int @default(20)
+  ratioNew      Int @default(10)
+
+  // Passage generation
+  paragraphLength ParagraphLength @default(MEDIUM)
+  difficulty      Difficulty      @default(MEDIUM)
+  harakatMode     HarakatMode     @default(FULL)
+  topicPreference String          @default("Mixed")
+
+  // Behaviour flags
+  includeNewWords     Boolean @default(true)
+  prioritizeWeakWords Boolean @default(true)
+  onlyImportedWords   Boolean @default(false)
+
+  // AI-introduced vocabulary
+  aiVocabMode AIVocabMode @default(NORMAL)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model DeckImport {
+  id       String @id @default(cuid())
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name           String
+  fileName       String
+  totalNotes     Int    @default(0)
+  importedCount  Int    @default(0)
+  duplicateCount Int    @default(0)
+  ambiguousCount Int    @default(0)
+
+  createdAt DateTime @default(now())
+
+  vocabulary VocabularyItem[]
+
+  @@index([userId])
+}
+
+model VocabularyItem {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Core lexical data
+  arabic            String
+  arabicWithHarakat String?
+  englishMeaning    String
+  type              WordType @default(UNKNOWN)
+  root              String?
+
+  // Verb morphology
+  verbForm     String? // Form I, II, III, IV, V, VI, VII, VIII, IX, X
+  pastTense    String?
+  presentTense String?
+  masdar       String?
+  imperative   String?
+
+  // Noun morphology
+  singular String?
+  dual     String?
+  plural   String?
+
+  // Adjective morphology
+  masculine String?
+  feminine  String?
+
+  notes     String?
+  rawFields String? // JSON snapshot of the original Anki note fields
+  tags      String[] @default([])
+
+  // Provenance
+  sourceType    SourceType @default(MANUAL)
+  sourceDeck    String?
+  sourceSection String?
+  deckImportId  String?
+  deckImport    DeckImport? @relation(fields: [deckImportId], references: [id], onDelete: SetNull)
+  aiIntroduced  Boolean     @default(false)
+  firstLessonId String? // lesson where an AI-introduced word first appeared
+
+  // Spaced-repetition / mastery state
+  status                  VocabStatus @default(NEW)
+  masteryScore            Int         @default(0)
+  correctCount            Int         @default(0)
+  incorrectCount          Int         @default(0)
+  consecutiveCorrectCount Int         @default(0)
+  lastReviewedAt          DateTime?
+  nextReviewAt            DateTime?
+  totalSeen               Int         @default(0)
+  totalMissed             Int         @default(0)
+  appearedInLessons       Int         @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  forms       VocabularyForm[]
+  examples    ExampleSentence[]
+  reviews     ReviewAttempt[]
+  mistakes    Mistake[]
+  lessonItems LessonVocabularyItem[]
+
+  @@index([userId, arabic])
+  @@index([userId, status])
+  @@index([userId, nextReviewAt])
+}
+
+// Flexible storage for conjugation tables / declensions beyond the fixed fields.
+model VocabularyForm {
+  id               String @id @default(cuid())
+  vocabularyItemId String
+  vocabularyItem   VocabularyItem @relation(fields: [vocabularyItemId], references: [id], onDelete: Cascade)
+
+  label         String // e.g. "huwa (past)", "plural (broken)"
+  arabic        String
+  transliteration String?
+  note          String?
+
+  createdAt DateTime @default(now())
+
+  @@index([vocabularyItemId])
+}
+
+model ExampleSentence {
+  id               String @id @default(cuid())
+  vocabularyItemId String
+  vocabularyItem   VocabularyItem @relation(fields: [vocabularyItemId], references: [id], onDelete: Cascade)
+
+  arabic        String
+  arabicWithHarakat String?
+  english       String
+  source        String? // e.g. "AI_GENERATED", "ANKI", lesson id
+
+  createdAt DateTime @default(now())
+
+  @@index([vocabularyItemId])
+}
+
+model Lesson {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  mode  PracticeMode
+  title String?
+  topic String?
+
+  // Paragraph mode payload
+  passageArabic   String?
+  passageHarakat  String?
+  passageEnglish  String? // reference translation produced by AI
+
+  userTranslation String?
+  aiFeedback      String? // JSON feedback blob
+  score           Int?
+
+  promptData       String? // JSON of structured data sent to the AI (audit trail)
+  settingsSnapshot String? // JSON snapshot of settings at generation time
+
+  completed   Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  items   LessonVocabularyItem[]
+  reviews ReviewAttempt[]
+  aiVocab AIIntroducedVocabulary[]
+
+  @@index([userId, createdAt])
+}
+
+// Join: which vocabulary items appeared in a lesson and in what role.
+model LessonVocabularyItem {
+  id               String @id @default(cuid())
+  lessonId         String
+  lesson           Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  vocabularyItemId String
+  vocabularyItem   VocabularyItem @relation(fields: [vocabularyItemId], references: [id], onDelete: Cascade)
+
+  role      String // "mastered" | "review" | "weak" | "new" | "ai"
+  wasCorrect Boolean?
+
+  createdAt DateTime @default(now())
+
+  @@unique([lessonId, vocabularyItemId])
+  @@index([vocabularyItemId])
+}
+
+model ReviewAttempt {
+  id               String @id @default(cuid())
+  userId           String
+  user             User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vocabularyItemId String
+  vocabularyItem   VocabularyItem @relation(fields: [vocabularyItemId], references: [id], onDelete: Cascade)
+  lessonId         String?
+  lesson           Lesson? @relation(fields: [lessonId], references: [id], onDelete: SetNull)
+
+  mode          PracticeMode
+  userAnswer    String?
+  result        ReviewResult
+  aiFeedback    String?
+  masteryBefore Int?
+  masteryAfter  Int?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([vocabularyItemId])
+}
+
+model Mistake {
+  id               String @id @default(cuid())
+  userId           String
+  user             User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vocabularyItemId String
+  vocabularyItem   VocabularyItem @relation(fields: [vocabularyItemId], references: [id], onDelete: Cascade)
+  lessonId         String?
+
+  userAnswer    String?
+  correctAnswer String
+  mistakeType   String? // "vocabulary" | "grammar" | "structure"
+  note          String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([vocabularyItemId])
+}
+
+model AIIntroducedVocabulary {
+  id       String  @id @default(cuid())
+  userId   String
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lessonId String?
+  lesson   Lesson? @relation(fields: [lessonId], references: [id], onDelete: SetNull)
+
+  arabic            String
+  arabicWithHarakat String?
+  englishMeaning    String
+  type              WordType @default(UNKNOWN)
+  root              String?
+  verbForm          String?
+  pastTense         String?
+  presentTense      String?
+  masdar            String?
+  imperative        String?
+  exampleArabic     String?
+  exampleEnglish    String?
+  notes             String?
+
+  status   AIVocabStatus @default(PENDING)
+  wasMissed Boolean      @default(false)
+  savedVocabularyItemId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+}

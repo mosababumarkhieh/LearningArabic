@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: arabic-vocab-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: arabic
+      POSTGRES_PASSWORD: arabic
+      POSTGRES_DB: arabic_vocab
+    ports:
+      - "5432:5432"
+    volumes:
+      - arabic_vocab_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arabic -d arabic_vocab"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  arabic_vocab_data:
