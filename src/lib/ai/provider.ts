@@ -25,43 +25,85 @@ class OpenAICompatibleProvider implements AIProvider {
     options: CompleteOptions = {},
   ): Promise<string> {
     const url = `${this.baseUrl.replace(/\/$/, "")}/chat/completions`;
-    const body: Record<string, unknown> = {
-      model: this.model,
-      messages,
-      temperature: options.temperature ?? 0.7,
-    };
-    if (options.maxTokens) body.max_tokens = options.maxTokens;
-    if (options.json) body.response_format = { type: "json_object" };
 
-    let res: Response;
-    try {
-      res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.apiKey}`,
-        },
-        body: JSON.stringify(body),
-        // Lessons can be large; give the model room to respond.
-        signal: AbortSignal.timeout(120_000),
-      });
-    } catch (err) {
-      throw new AIError("Failed to reach the AI provider.", err);
-    }
+    // Different model families accept different parameters. We start with the
+    // modern shape and, if the model rejects a parameter (HTTP 400), strip the
+    // offending one and retry. This keeps a single provider working across
+    // gpt-4o-*, gpt-4.1-*, gpt-5.*, and the o-series without per-model config.
+    let useTemperature = options.temperature !== undefined;
+    let temperature = options.temperature ?? 0.7;
+    let useJson = Boolean(options.json);
+    let useTokenLimit = Boolean(options.maxTokens);
 
-    if (!res.ok) {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const body: Record<string, unknown> = { model: this.model, messages };
+      // `max_completion_tokens` is the current parameter; `max_tokens` is the
+      // legacy alias that newer models reject.
+      if (useTokenLimit) body.max_completion_tokens = options.maxTokens;
+      if (useTemperature) body.temperature = temperature;
+      if (useJson) body.response_format = { type: "json_object" };
+
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${this.apiKey}`,
+          },
+          body: JSON.stringify(body),
+          // Stay under the serverless function budget so a slow model degrades
+          // gracefully to the offline fallback instead of a hard timeout.
+          signal: AbortSignal.timeout(55_000),
+        });
+      } catch (err) {
+        throw new AIError("Failed to reach the AI provider.", err);
+      }
+
+      if (res.ok) {
+        const data = (await res.json()) as {
+          choices?: { message?: { content?: string } }[];
+        };
+        const content = data.choices?.[0]?.message?.content;
+        if (!content) {
+          throw new AIError("AI provider returned an empty response.");
+        }
+        return content;
+      }
+
       const text = await res.text().catch(() => "");
+      const lower = text.toLowerCase();
+
+      // Adapt to model-specific parameter restrictions and retry once each.
+      if (res.status === 400) {
+        if (useTemperature && lower.includes("temperature")) {
+          // e.g. GPT-5 / o-series only allow the default temperature.
+          if (temperature !== 1) {
+            temperature = 1;
+          } else {
+            useTemperature = false;
+          }
+          continue;
+        }
+        if (useJson && lower.includes("response_format")) {
+          useJson = false; // prompts already request JSON explicitly
+          continue;
+        }
+        if (
+          useTokenLimit &&
+          (lower.includes("max_completion_tokens") || lower.includes("max_tokens"))
+        ) {
+          useTokenLimit = false;
+          continue;
+        }
+      }
+
       throw new AIError(
         `AI provider returned ${res.status}: ${text.slice(0, 500)}`,
       );
     }
 
-    const data = (await res.json()) as {
-      choices?: { message?: { content?: string } }[];
-    };
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) throw new AIError("AI provider returned an empty response.");
-    return content;
+    throw new AIError("AI provider rejected the request after adapting parameters.");
   }
 }
 

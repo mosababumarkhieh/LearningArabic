@@ -10,7 +10,8 @@
       "Bash(docker info *)",
       "Bash(break)",
       "Bash(npx tsc *)",
-      "Bash(echo \"=== tsc exit: $? ===\")"
+      "Bash(echo \"=== tsc exit: $? ===\")",
+      "WebSearch"
     ],
     "additionalDirectories": [
       "c:\\Users\\mosab\\.claude\\projects\\c--Users-mosab-OneDrive-Desktop-LearningArabic-Website\\memory",

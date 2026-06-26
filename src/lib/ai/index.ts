@@ -61,8 +61,8 @@ export async function generateLesson(
         aiIntroduced: (parsed.aiIntroduced ?? []).slice(0, input.aiVocab.max),
         source: "ai",
       };
-    } catch {
-      // fall through to offline generation
+    } catch (err) {
+      console.error("[ai] lesson generation failed, using offline:", err);
     }
   }
   return offlineLesson(input);
@@ -144,7 +144,8 @@ export async function gradeIsolated(
       }
       return deterministic.find((d) => d.id === it.id)!;
     });
-  } catch {
+  } catch (err) {
+    console.error("[ai] isolated grading failed, using deterministic:", err);
     return deterministic;
   }
 }
@@ -203,8 +204,8 @@ export async function gradeTranslation(args: {
         aiWordResults: parsed.aiWordResults ?? [],
         source: "ai",
       };
-    } catch {
-      // fall through
+    } catch (err) {
+      console.error("[ai] translation grading failed, using offline:", err);
     }
   }
   return offlineTranslationGrade(args);
