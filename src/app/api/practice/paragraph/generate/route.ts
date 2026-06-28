@@ -1,10 +1,39 @@
 import { prisma } from "@/lib/db";
 import { withUser } from "@/lib/api";
 import { getUserSettings, aiVocabRange, paragraphTargetWords } from "@/lib/settings";
-import { selectLessonWords } from "@/lib/lesson-builder";
+import { selectLessonWords, knownWordKeys } from "@/lib/lesson-builder";
 import { generateLesson, type WordBrief } from "@/lib/ai";
+import { normalizeArabicKey } from "@/lib/utils";
 
 export const maxDuration = 60;
+
+// Rotating style directives so each generation reads differently.
+const FORMATS = [
+  "Write it as a short story with a small plot.",
+  "Write it as a dialogue between two people.",
+  "Write it as a personal diary entry.",
+  "Write it as a friendly letter or message.",
+  "Write it as a vivid description of a place or scene.",
+  "Write it as a short news-style report.",
+  "Write it as a reflection or opinion piece.",
+  "Write it as a step-by-step account of a day or an errand.",
+  "Write it as a conversation at the market, masjid, or school.",
+  "Write it as a brief anecdote with a lesson at the end.",
+];
+const TONES = [
+  "warm and reflective",
+  "lively and energetic",
+  "calm and descriptive",
+  "curious and questioning",
+  "practical and matter-of-fact",
+  "lightly humorous",
+];
+
+function randomStyleDirective(): string {
+  const f = FORMATS[Math.floor(Math.random() * FORMATS.length)];
+  const t = TONES[Math.floor(Math.random() * TONES.length)];
+  return `${f} Tone: ${t}.`;
+}
 
 export const POST = withUser(async (userId, req) => {
   const body = await req.json().catch(() => ({}));
@@ -32,6 +61,9 @@ export const POST = withUser(async (userId, req) => {
   const aiMode = settings.onlyImportedWords ? "OFF" : settings.aiVocabMode;
   const range = aiVocabRange(aiMode);
 
+  // Words the user already knows / has resolved — never reintroduce these.
+  const { keys: knownKeys, recentAiWords } = await knownWordKeys(userId);
+
   const generated = await generateLesson({
     topic,
     difficulty: settings.difficulty,
@@ -49,6 +81,19 @@ export const POST = withUser(async (userId, req) => {
     mustInclude: selection.mustInclude,
     avoidOverusing: selection.avoidOverusing,
     aiVocab: { mode: aiMode, min: range.min, max: range.max },
+    styleDirective: randomStyleDirective(),
+    avoidOpenings: selection.recentOpenings,
+    avoidIntroduce: recentAiWords,
+  });
+
+  // Hard guard: drop any AI-introduced word the learner already has or has
+  // already resolved (e.g. previously marked "I know it"), and de-dupe.
+  const seenAiKeys = new Set<string>();
+  const freshAiWords = generated.aiIntroduced.filter((w) => {
+    const key = normalizeArabicKey(w.arabic);
+    if (!key || knownKeys.has(key) || seenAiKeys.has(key)) return false;
+    seenAiKeys.add(key);
+    return true;
   });
 
   // Which provided words ended up in the passage.
@@ -97,7 +142,7 @@ export const POST = withUser(async (userId, req) => {
         })),
       },
       aiVocab: {
-        create: generated.aiIntroduced.map((w) => ({
+        create: freshAiWords.map((w) => ({
           userId,
           arabic: w.arabic,
           arabicWithHarakat: w.arabic,

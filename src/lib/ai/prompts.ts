@@ -36,6 +36,9 @@ export type LessonGenInput = {
   mustInclude: WordBrief[];
   avoidOverusing: string[];
   aiVocab: { mode: string; min: number; max: number };
+  styleDirective?: string;
+  avoidOpenings?: string[];
+  avoidIntroduce?: string[];
 };
 
 function wordList(words: WordBrief[]): string {
@@ -65,8 +68,16 @@ TARGET LENGTH: about ${input.targetWords} Arabic words.
 COMPOSITION TARGET: ~${input.ratio.mastered}% known/mastered, ~${input.ratio.review}% review/weak, ~${input.ratio.new}% new.
 ${harakatInstruction}
 
-The passage should read naturally — a short story, conversation, or mini-essay — not a list of sentences.
-Reuse WEAK words where natural. Occasionally bring back mastered words. Do NOT flood the passage with new words.
+VARIETY (very important): ${input.styleDirective || "Vary the genre, structure, and tone."}
+- Make this passage clearly DIFFERENT from previous ones in opening line, structure, setting, and tone.
+- Do NOT open with weather or time-of-day clichés (e.g. "On a calm morning / في صباح هادئ"). Start somewhere fresh.
+${
+  input.avoidOpenings && input.avoidOpenings.length
+    ? `- Do NOT reuse any of these recent openings: ${input.avoidOpenings.map((o) => `"${o}"`).join(" | ")}`
+    : ""
+}
+
+COVERAGE: Use as MANY of the provided words as read naturally. Include MOST of the WEAK, REVIEW and NEW words, plus a good spread of the MASTERED words for context. A rich passage that exercises many words is better than a sparse one — write tightly so the words fit the target length.
 
 MASTERED / KNOWN words to draw from:
 ${wordList(input.mastered)}
@@ -83,10 +94,11 @@ ${wordList(input.newWords)}
 WORDS THAT MUST APPEAR:
 ${wordList(input.mustInclude)}
 
-AVOID OVERUSING these recently-seen words: ${input.avoidOverusing.join("، ") || "(none)"}
+AVOID OVERUSING these recently-seen words (lean on different ones): ${input.avoidOverusing.join("، ") || "(none)"}
 
 AI-INTRODUCED VOCABULARY:
 Mode = ${input.aiVocab.mode}. You MAY introduce between ${input.aiVocab.min} and ${input.aiVocab.max} brand-new common Arabic words that are NOT in the lists above, only if they fit naturally. If mode is OFF, introduce ZERO new words.
+NEVER introduce any of these as "new" — the learner already knows or has already seen them: ${input.avoidIntroduce && input.avoidIntroduce.length ? input.avoidIntroduce.join("، ") : "(none)"}
 
 Return ONLY JSON shaped exactly like:
 {
