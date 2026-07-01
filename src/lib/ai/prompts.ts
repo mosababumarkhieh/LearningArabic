@@ -39,6 +39,8 @@ export type LessonGenInput = {
   styleDirective?: string;
   avoidOpenings?: string[];
   avoidIntroduce?: string[];
+  themeDirective?: string;
+  deckFocused?: boolean;
 };
 
 function wordList(words: WordBrief[]): string {
@@ -60,24 +62,29 @@ export function lessonGenerationPrompt(input: LessonGenInput): ChatMessage[] {
         ? "Add harakāt only where needed to disambiguate."
         : "Write the passage with FULL harakāt on every word.";
 
-  const user = `Generate a coherent Arabic reading passage for translation practice.
+  const coverage = input.deckFocused
+    ? `WORD USAGE: This is a DECK-FOCUSED passage. Draw heavily from the provided words, but ONLY in service of a coherent story. Pick the words that naturally fit together and build a sensible narrative around them. You do NOT need to use every word — a clear passage using a well-chosen subset beats a nonsensical one that crams them all in.`
+    : `WORD USAGE: Weave in the provided vocabulary where it fits naturally, but the STORY comes first. Use whichever words serve the passage and freely leave out the rest. It is completely fine to use only a handful of them.`;
 
-TOPIC: ${input.topic}
+  const user = `Write a coherent, meaningful Arabic reading passage for translation practice.
+
+SUBJECT / STYLE: ${input.themeDirective || `Topic: ${input.topic}.`}
 DIFFICULTY: ${input.difficulty}
 TARGET LENGTH: about ${input.targetWords} Arabic words.
-COMPOSITION TARGET: ~${input.ratio.mastered}% known/mastered, ~${input.ratio.review}% review/weak, ~${input.ratio.new}% new.
 ${harakatInstruction}
 
-VARIETY (very important): ${input.styleDirective || "Vary the genre, structure, and tone."}
-- Make this passage clearly DIFFERENT from previous ones in opening line, structure, setting, and tone.
-- Do NOT open with weather or time-of-day clichés (e.g. "On a calm morning / في صباح هادئ"). Start somewhere fresh.
+COHERENCE COMES FIRST (most important rule): The passage must make real sense — a genuine situation, a small plot, or a connected reflection with a clear beginning, middle, and end. Never string unrelated ideas together or list random items just to fit vocabulary. If a word doesn't fit the story, leave it out. A reader should think "that was a sensible little text," not "that was a random word salad."
+
+${coverage}
+
+VARIETY: ${input.styleDirective || "Vary the genre, structure, and tone."}
+- Make this passage clearly DIFFERENT from previous ones in opening, structure, setting, and tone.
+- Do NOT open with weather or time-of-day clichés (e.g. "On a calm morning / في صباح هادئ").
 ${
   input.avoidOpenings && input.avoidOpenings.length
     ? `- Do NOT reuse any of these recent openings: ${input.avoidOpenings.map((o) => `"${o}"`).join(" | ")}`
     : ""
 }
-
-COVERAGE: Use as MANY of the provided words as read naturally. Include MOST of the WEAK, REVIEW and NEW words, plus a good spread of the MASTERED words for context. A rich passage that exercises many words is better than a sparse one — write tightly so the words fit the target length.
 
 MASTERED / KNOWN words to draw from:
 ${wordList(input.mastered)}
@@ -91,7 +98,7 @@ ${wordList(input.weak)}
 NEW imported words to introduce gently:
 ${wordList(input.newWords)}
 
-WORDS THAT MUST APPEAR:
+TRY TO INCLUDE these weak words that need review (work them in only if they fit the story naturally):
 ${wordList(input.mustInclude)}
 
 AVOID OVERUSING these recently-seen words (lean on different ones): ${input.avoidOverusing.join("، ") || "(none)"}
@@ -124,11 +131,17 @@ export function translationGradingPrompt(args: {
   userTranslation: string;
   lessonWords: WordBrief[];
   aiIntroduced: { arabic: string; english: string }[];
+  referenceTranslation?: string | null;
 }): ChatMessage[] {
+  const referenceBlock = args.referenceTranslation
+    ? `\nAUTHORITATIVE REFERENCE TRANSLATION (this is the correct meaning — grade against it, and do NOT invent a different translation of this text):\n"""${args.referenceTranslation}"""\n`
+    : "";
+
   const user = `Grade the learner's English translation of this Arabic passage.
 
 ARABIC PASSAGE (with harakāt):
 ${args.passageHarakat || args.passageArabic}
+${referenceBlock}
 
 VOCABULARY USED IN THIS PASSAGE (from the learner's database):
 ${wordList(args.lessonWords)}

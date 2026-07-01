@@ -1,9 +1,17 @@
 import { prisma } from "@/lib/db";
 import { withUser } from "@/lib/api";
-import { getUserSettings, aiVocabRange, paragraphTargetWords } from "@/lib/settings";
+import {
+  getUserSettings,
+  aiVocabRange,
+  paragraphTargetWords,
+  resolvePassageTheme,
+  isAuthenticTheme,
+  themeDirective,
+} from "@/lib/settings";
 import { selectLessonWords, knownWordKeys } from "@/lib/lesson-builder";
 import { generateLesson, type WordBrief } from "@/lib/ai";
-import { normalizeArabicKey } from "@/lib/utils";
+import { normalizeArabicKey, stripHarakat } from "@/lib/utils";
+import { fetchRandomAyah, fetchRandomHadith, tokenizeArabic } from "@/lib/content";
 
 export const maxDuration = 60;
 
@@ -35,6 +43,72 @@ function randomStyleDirective(): string {
   return `${f} Tone: ${t}.`;
 }
 
+/**
+ * Build a lesson from an AUTHENTIC source (Qur'an verse / hadith). The Arabic is
+ * fetched, never AI-generated, and the official translation is stored as the
+ * reference. Deck words that happen to appear are attached so mastery still updates.
+ */
+async function buildAuthenticLesson(
+  userId: string,
+  theme: string,
+  harakatMode: string,
+) {
+  const source =
+    theme === "QURAN" ? await fetchRandomAyah() : await fetchRandomHadith();
+
+  const passageHarakat = source.arabic;
+  const passagePlain = stripHarakat(source.arabic);
+
+  // Attach any of the learner's deck words that actually appear in the text.
+  const vocab = await prisma.vocabularyItem.findMany({
+    where: { userId },
+    select: { id: true, arabic: true, status: true },
+  });
+  const textKeys = new Set(
+    tokenizeArabic(passagePlain)
+      .map(normalizeArabicKey)
+      .filter((k) => k.length >= 2),
+  );
+  const matched = vocab.filter((v) => textKeys.has(normalizeArabicKey(v.arabic)));
+
+  const lesson = await prisma.lesson.create({
+    data: {
+      userId,
+      mode: "PARAGRAPH",
+      title: source.citation,
+      topic: source.kind === "quran" ? "Qurʾān" : "Hadith",
+      passageArabic: passagePlain,
+      passageHarakat,
+      passageEnglish: source.english, // authoritative reference translation
+      promptData: JSON.stringify({
+        source: source.kind,
+        citation: source.citation,
+        matched: matched.length,
+      }),
+      settingsSnapshot: JSON.stringify({ theme, harakatMode }),
+      items: {
+        create: matched.map((v) => ({
+          vocabularyItemId: v.id,
+          role: v.status.toLowerCase(),
+        })),
+      },
+    },
+  });
+
+  return {
+    lessonId: lesson.id,
+    title: source.citation,
+    topic: lesson.topic,
+    passageHarakat,
+    passagePlain,
+    harakatMode,
+    source: source.kind,
+    citation: source.citation,
+    reference: source.english,
+    wordCount: matched.length,
+  };
+}
+
 export const POST = withUser(async (userId, req) => {
   const body = await req.json().catch(() => ({}));
   const settings = await getUserSettings(userId);
@@ -44,6 +118,18 @@ export const POST = withUser(async (userId, req) => {
       ? "Mixed (daily life, masjid, studying, family)"
       : settings.topicPreference);
 
+  // Resolve theme: per-request override → saved setting → default (MIXED expands).
+  const theme = resolvePassageTheme(
+    body?.theme as string | undefined,
+    settings.passageTheme,
+  );
+
+  // Qur'an / Hadith use authentic fetched text, not AI-written Arabic.
+  if (isAuthenticTheme(theme)) {
+    return await buildAuthenticLesson(userId, theme, settings.harakatMode);
+  }
+
+  const { directive, deckFocused } = themeDirective(theme, topic);
   const selection = await selectLessonWords(userId, settings);
 
   const totalSelected =
@@ -84,6 +170,8 @@ export const POST = withUser(async (userId, req) => {
     styleDirective: randomStyleDirective(),
     avoidOpenings: selection.recentOpenings,
     avoidIntroduce: recentAiWords,
+    themeDirective: directive,
+    deckFocused,
   });
 
   // Hard guard: drop any AI-introduced word the learner already has or has
@@ -134,6 +222,7 @@ export const POST = withUser(async (userId, req) => {
         harakatMode: settings.harakatMode,
         paragraphLength: settings.paragraphLength,
         aiVocabMode: aiMode,
+        theme,
       }),
       items: {
         create: [...usedIds].map((id) => ({
@@ -163,6 +252,8 @@ export const POST = withUser(async (userId, req) => {
     passagePlain: generated.passagePlain,
     harakatMode: settings.harakatMode,
     source: generated.source,
+    citation: null,
+    reference: null,
     wordCount: usedIds.size,
   };
 });

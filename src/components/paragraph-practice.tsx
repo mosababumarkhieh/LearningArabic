@@ -35,7 +35,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { masteryColor } from "@/components/status-badge";
-import { TOPIC_OPTIONS } from "@/lib/settings";
+import { TOPIC_OPTIONS, PASSAGE_THEME_OPTIONS } from "@/lib/settings";
 
 type Generated = {
   lessonId: string;
@@ -44,7 +44,9 @@ type Generated = {
   passageHarakat: string;
   passagePlain: string;
   harakatMode: string;
-  source: "ai" | "offline";
+  source: "ai" | "offline" | "quran" | "hadith";
+  citation: string | null;
+  reference: string | null;
   wordCount: number;
 };
 
@@ -85,10 +87,17 @@ type Feedback = {
 
 type Phase = "idle" | "generating" | "reading" | "grading" | "feedback";
 
-export function ParagraphPractice({ defaultTopic }: { defaultTopic: string }) {
+export function ParagraphPractice({
+  defaultTopic,
+  defaultTheme,
+}: {
+  defaultTopic: string;
+  defaultTheme: string;
+}) {
   const router = useRouter();
   const [phase, setPhase] = React.useState<Phase>("idle");
   const [topic, setTopic] = React.useState(defaultTopic);
+  const [theme, setTheme] = React.useState(defaultTheme);
   const [lesson, setLesson] = React.useState<Generated | null>(null);
   const [showHarakat, setShowHarakat] = React.useState(true);
   const [translation, setTranslation] = React.useState("");
@@ -102,7 +111,7 @@ export function ParagraphPractice({ defaultTopic }: { defaultTopic: string }) {
       const res = await fetch("/api/practice/paragraph/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic: topic === "Mixed" ? "" : topic }),
+        body: JSON.stringify({ topic: topic === "Mixed" ? "" : topic, theme }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -165,18 +174,32 @@ export function ParagraphPractice({ defaultTopic }: { defaultTopic: string }) {
             </p>
           </div>
           <div className="flex w-full max-w-xs flex-col gap-2">
-            <Select value={topic} onValueChange={setTopic}>
+            <Select value={theme} onValueChange={setTheme}>
               <SelectTrigger>
-                <SelectValue />
+                <SelectValue placeholder="Theme" />
               </SelectTrigger>
               <SelectContent>
-                {TOPIC_OPTIONS.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {t}
+                {PASSAGE_THEME_OPTIONS.map((t) => (
+                  <SelectItem key={t.value} value={t.value}>
+                    {t.label}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            {!["QURAN", "HADITH"].includes(theme) && (
+              <Select value={topic} onValueChange={setTopic}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Topic" />
+                </SelectTrigger>
+                <SelectContent>
+                  {TOPIC_OPTIONS.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {t}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             <Button size="lg" onClick={generate} disabled={phase === "generating"}>
               {phase === "generating" ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -200,8 +223,20 @@ export function ParagraphPractice({ defaultTopic }: { defaultTopic: string }) {
             <div>
               <CardTitle>{lesson?.title}</CardTitle>
               <CardDescription>
-                {lesson?.topic} · {lesson?.wordCount} of your words
-                {lesson?.source === "offline" && " · offline draft"}
+                {lesson?.citation ? (
+                  <>
+                    Authentic{" "}
+                    {lesson.source === "quran" ? "Qurʾān" : "hadith"} ·{" "}
+                    {lesson.citation}
+                    {lesson.wordCount > 0 &&
+                      ` · ${lesson.wordCount} of your words appear`}
+                  </>
+                ) : (
+                  <>
+                    {lesson?.topic} · {lesson?.wordCount} of your words
+                    {lesson?.source === "offline" && " · offline draft"}
+                  </>
+                )}
               </CardDescription>
             </div>
             <Button

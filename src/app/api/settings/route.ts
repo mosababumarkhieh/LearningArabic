@@ -20,6 +20,16 @@ const schema = z.object({
   prioritizeWeakWords: z.boolean(),
   onlyImportedWords: z.boolean(),
   aiVocabMode: z.enum(["OFF", "CONSERVATIVE", "NORMAL", "AGGRESSIVE"]),
+  passageTheme: z.enum([
+    "DECK",
+    "EVERYDAY",
+    "ISLAMIC",
+    "QURAN",
+    "HADITH",
+    "MODERN",
+    "CLASSICAL",
+    "MIXED",
+  ]),
 });
 
 export const GET = withUser(async (userId) => {

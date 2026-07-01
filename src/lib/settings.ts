@@ -18,7 +18,51 @@ export const DEFAULT_SETTINGS = {
   prioritizeWeakWords: true,
   onlyImportedWords: false,
   aiVocabMode: "NORMAL",
+  passageTheme: "DECK",
 } satisfies Partial<Prisma.UserSettingsCreateInput>;
+
+export const PASSAGE_THEME_OPTIONS = [
+  {
+    value: "DECK",
+    label: "Deck-focused",
+    hint: "Coherent passages built mainly from your vocabulary",
+  },
+  {
+    value: "EVERYDAY",
+    label: "Everyday life",
+    hint: "Shopping, doctor visits, friends, food, books & shows (modern MSA)",
+  },
+  {
+    value: "ISLAMIC",
+    label: "Islamic stories",
+    hint: "Stories of the prophets, companions & good character (AI-written)",
+  },
+  {
+    value: "QURAN",
+    label: "Qurʾān (verse study)",
+    hint: "An authentic verse from the Qurʾān with its translation",
+  },
+  {
+    value: "HADITH",
+    label: "Hadith",
+    hint: "An authentic hadith (Bukhari/Muslim/Abu Dawud) with translation",
+  },
+  {
+    value: "MODERN",
+    label: "Modern literary",
+    hint: "Contemporary novel/essay style",
+  },
+  {
+    value: "CLASSICAL",
+    label: "Classical Arabic",
+    hint: "Elevated heritage (turāth) register",
+  },
+  {
+    value: "MIXED",
+    label: "Mixed (surprise me)",
+    hint: "Randomly varies the theme each time",
+  },
+] as const;
 
 export const TOPIC_OPTIONS = [
   "Daily life",
@@ -81,6 +125,61 @@ export function aiVocabRange(mode: string): { min: number; max: number } {
     case "NORMAL":
     default:
       return { min: 1, max: 2 };
+  }
+}
+
+const AI_WRITTEN_THEMES = ["DECK", "EVERYDAY", "ISLAMIC", "MODERN", "CLASSICAL"];
+const VALID_THEMES = PASSAGE_THEME_OPTIONS.map((o) => o.value) as string[];
+
+/** Resolve the effective theme (request override → setting → default), expanding MIXED. */
+export function resolvePassageTheme(
+  requested: string | undefined,
+  fallback: string,
+): string {
+  let theme = requested && VALID_THEMES.includes(requested) ? requested : fallback;
+  if (!VALID_THEMES.includes(theme)) theme = "DECK";
+  if (theme === "MIXED") {
+    theme = AI_WRITTEN_THEMES[Math.floor(Math.random() * AI_WRITTEN_THEMES.length)];
+  }
+  return theme;
+}
+
+export function isAuthenticTheme(theme: string): boolean {
+  return theme === "QURAN" || theme === "HADITH";
+}
+
+/** Subject/style directive + whether to bias toward using deck words. */
+export function themeDirective(
+  theme: string,
+  topic: string,
+): { directive: string; deckFocused: boolean } {
+  switch (theme) {
+    case "EVERYDAY":
+      return {
+        directive: `A realistic modern-life scene in natural Modern Standard Arabic — e.g. shopping or the mall, choosing clothes, ordering food, a doctor's visit describing where it hurts and how you feel, meeting a friend, or discussing a book, show, or movie. Make it feel like real life. Topic hint: ${topic}.`,
+        deckFocused: false,
+      };
+    case "ISLAMIC":
+      return {
+        directive: `An Islamic story or moral lesson told in your OWN words — e.g. a story of a prophet or a companion, an act of good character (akhlāq), or a reflection on gratitude, patience, or honesty. Do NOT quote the Qurʾān or any hadith verbatim; narrate in your own MSA prose.`,
+        deckFocused: false,
+      };
+    case "MODERN":
+      return {
+        directive: `An excerpt in modern literary Arabic, like a page from a contemporary novel or a thoughtful personal essay. Topic hint: ${topic}.`,
+        deckFocused: false,
+      };
+    case "CLASSICAL":
+      return {
+        directive: `A passage in classical / heritage Arabic (فصحى تراثية) with a slightly elevated literary register — like classical adab or a traditional tale with wisdom.`,
+        deckFocused: false,
+      };
+    case "DECK":
+    default:
+      return {
+        directive: `A clear everyday scene or simple story. Topic hint: ${topic}.`,
+        deckFocused: true,
+      };
   }
 }
 

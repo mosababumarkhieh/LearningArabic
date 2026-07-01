@@ -28,6 +28,7 @@ import {
   DIFFICULTY_OPTIONS,
   HARAKAT_OPTIONS,
   AI_VOCAB_MODE_OPTIONS,
+  PASSAGE_THEME_OPTIONS,
 } from "@/lib/settings";
 
 export type SettingsShape = {
@@ -47,6 +48,7 @@ export type SettingsShape = {
   prioritizeWeakWords: boolean;
   onlyImportedWords: boolean;
   aiVocabMode: string;
+  passageTheme: string;
 };
 
 function NumberField({
@@ -200,6 +202,36 @@ export function SettingsForm({ initial }: { initial: SettingsShape }) {
             onChange={(v) => set("ratioNew", v)}
             max={100}
           />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Passage theme</CardTitle>
+          <CardDescription>
+            What your reading passages are about. Qurʾān & Hadith use authentic
+            text pulled from a trusted source (never AI-written). You can also
+            override this per lesson on the Paragraph page.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {PASSAGE_THEME_OPTIONS.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                onClick={() => set("passageTheme", o.value)}
+                className={`rounded-lg border p-3 text-left transition-colors ${
+                  s.passageTheme === o.value
+                    ? "border-primary bg-primary/5 ring-1 ring-primary"
+                    : "hover:bg-accent"
+                }`}
+              >
+                <p className="text-sm font-medium">{o.label}</p>
+                <p className="text-xs text-muted-foreground">{o.hint}</p>
+              </button>
+            ))}
+          </div>
         </CardContent>
       </Card>
 

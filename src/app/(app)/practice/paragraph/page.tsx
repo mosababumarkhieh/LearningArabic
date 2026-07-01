@@ -20,7 +20,10 @@ export default async function ParagraphPracticePage() {
           {live ? "AI live" : "Offline mode"}
         </Badge>
       </PageHeader>
-      <ParagraphPractice defaultTopic={settings.topicPreference} />
+      <ParagraphPractice
+        defaultTopic={settings.topicPreference}
+        defaultTheme={settings.passageTheme}
+      />
     </div>
   );
 }

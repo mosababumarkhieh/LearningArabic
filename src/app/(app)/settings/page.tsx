@@ -25,6 +25,7 @@ export default async function SettingsPage() {
     prioritizeWeakWords: settings.prioritizeWeakWords,
     onlyImportedWords: settings.onlyImportedWords,
     aiVocabMode: settings.aiVocabMode,
+    passageTheme: settings.passageTheme,
   };
 
   return (

@@ -183,6 +183,7 @@ export async function gradeTranslation(args: {
   userTranslation: string;
   lessonWords: WordBrief[];
   aiIntroduced: { arabic: string; english: string }[];
+  referenceTranslation?: string | null;
 }): Promise<TranslationFeedback> {
   const provider = getAIProvider();
   if (provider.isLive) {

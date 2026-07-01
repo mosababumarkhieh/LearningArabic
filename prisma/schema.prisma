@@ -134,6 +134,10 @@ model UserSettings {
   harakatMode     HarakatMode     @default(FULL)
   topicPreference String          @default("Mixed")
 
+  // Passage theme / content source:
+  // DECK | EVERYDAY | ISLAMIC | QURAN | HADITH | MODERN | CLASSICAL | MIXED
+  passageTheme String @default("DECK")
+
   // Behaviour flags
   includeNewWords     Boolean @default(true)
   prioritizeWeakWords Boolean @default(true)

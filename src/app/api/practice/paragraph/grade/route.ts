@@ -48,6 +48,8 @@ export const POST = withUser(async (userId, req) => {
       arabic: a.arabicWithHarakat || a.arabic,
       english: a.englishMeaning,
     })),
+    // For Qur'an/Hadith lessons this holds the authoritative translation.
+    referenceTranslation: lesson.passageEnglish,
   });
 
   // ---- Update mastery for database words used in the passage ----
@@ -165,7 +167,8 @@ export const POST = withUser(async (userId, req) => {
   return {
     score: feedback.score,
     summary: feedback.summary,
-    fullTranslation: feedback.fullTranslation,
+    // Prefer the authoritative reference translation when we have one.
+    fullTranslation: lesson.passageEnglish || feedback.fullTranslation,
     corrections: feedback.corrections,
     grammarNotes: feedback.grammarNotes,
     missedWords: feedback.missedWords,
